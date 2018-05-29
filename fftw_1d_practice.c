@@ -13,26 +13,21 @@ int main()
 
     for(i = 0; i<N; i++) {
         // in[i] = cos( 3.1415926 * 8.0 * (float)i/N ) + I * sin( 3.1415926 * 8.0 * (float)i/N ) ;
+        
         // Square wave 1
         if(i < nsquare+offset || i > N-nsquare+offset) {
             in[i] = 1.0;
         }
         else { in[i] = 0.0;}
 
-<<<<<<< HEAD
         // Square wave 2
         /*
-=======
-        /*
-        // Square wave 2
->>>>>>> d8080ab4a6f7edec6eed84b0bfc2491e34b025a0
         if(i < nsquare*2-1 ) {
             in[i] = 1.0;
         }
         else { in[i] = 0.0;}
         */
 
-<<<<<<< HEAD
         // Gaussian function
         /*
         in[i] = sqrt(1./(2.*3.1415926*sigma)) * exp(-((float)i/N-0.0)*((float)i/N-0.0)/(2.0*sigma*sigma)) +  \
@@ -41,15 +36,6 @@ int main()
 
         // Delta function
         /*
-=======
-        /*
-        // Gaussian function
-        in[i] = sqrt(1./(2.*3.1415926*sigma)) * exp(-((float)i/N-0.0)*((float)i/N-0.0)/(2.0*sigma*sigma)) +  \
-          sqrt(1./(2.*3.1415926*sigma)) * exp(-((float)i/N-1.0)*((float)i/N-1.0)/(2.0*sigma*sigma));
-        */
-        /*
-        // Delta function
->>>>>>> d8080ab4a6f7edec6eed84b0bfc2491e34b025a0
         if(i==0) {
             in[i] = 2.0;
         }
