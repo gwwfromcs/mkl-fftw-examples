@@ -1,4 +1,8 @@
-
+// Compile: 
+// On ICES machine, 
+// 1. module load fftw3/3.3.4 intel/17.0; 
+// 2. icc -I$FFTW_INC -L$FFTW_LIB -lfftw3 fftw_1d_practice.c -o fftw_1d_practice.exe
+// 3. ./fftw_1d_practice.exe > data.txt
 #include <complex.h>
 #include <fftw3.h>
 #include <math.h>
@@ -7,7 +11,7 @@ int main()
 {
     fftw_plan p;
     int i, N = 500, nsquare = 10, offset=1;
-    float sigma = 0.001, or, oi;
+    double sigma = 0.001, or, oi;
     fftw_complex in[N];
     fftw_complex out[N];
 
@@ -48,10 +52,12 @@ int main()
 
     fftw_execute(p);
     
+    printf("#  out = fft(in) \n");
+    printf("#    x   real(in(x))   imag(in(x))   real(out)   imag(out)   mod(out) \n");
     for(i = 0; i<N; i++) {
         or=creal(out[i]);
         oi=cimag(out[i]);
-        printf("  %7.4f %7.4f %7.4f %7.4f %7.4f %7.4f\n", (float)i/N,creal(in[i]),cimag(in[i]),or,oi,sqrt( or*or + oi*oi ));
+        printf("  %9.4f %9.4f %9.4f %9.4f %9.4f %9.4f\n", (float)i/N,creal(in[i]),cimag(in[i]),or,oi,sqrt( or*or + oi*oi ));
     }
 
     fftw_destroy_plan(p);
