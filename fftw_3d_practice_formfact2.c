@@ -33,7 +33,7 @@ int main(int argc, char **argv)
     fftw_plan p;
     // const double pi = 3.1415926535897932384626433832795;
     const double pi = 3.1415926535897932384626433832795028841971693993751;
-    const int L = 10;
+    const int a=4.5, L = 10;
     int i, j, k, N, M, Z, ngl, igl, ng, exist, mill[3];
     double gg, dx, Omega, theta, small = 1.0e-10, cutoff;
     double x,y,z,dist,r,sigma = 0.03, \
