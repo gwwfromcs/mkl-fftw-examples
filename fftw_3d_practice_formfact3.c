@@ -1,5 +1,5 @@
 // Compilation on ICES:
-// icc -I$FFTW_INC -L$FFTW_LIB -lfftw3 fftw_3d_practice_formfact2.c -o fftw_3d_practice_formfact2.exe
+// icc -I$FFTW_INC -L$FFTW_LIB -lfftw3 spl.c fftw_3d_practice_formfact3.c -o fftw_3d_practice_formfact3.exe
 // This example shows how to use dynamically allocated 3d array for fftw
 //
 #include <complex.h>
@@ -7,16 +7,7 @@
 #include <stdio.h>
 #include <fftw3.h>
 #include <math.h>
-
-double gaussian(double center, double stddev, double x) 
-{ 
-    double variance2 = stddev*stddev*2.0; 
-    double term = x-center; 
-    double lambda = 4.0; // An arbitrary constant, for testing only
-    // double pi = 3.1415926535897932384626433832795;
-    const double pi = 3.1415926535897932384626433832795028841971693993751;
-    return lambda*exp(-(term*term)/variance2)/sqrt(pi*variance2); 
-}
+#include "spl.h"
 
 double J0(double x)
 {
@@ -58,22 +49,20 @@ int main(int argc, char **argv)
     const double a = 4.5;   // in Bohr
     const int L = 10; 
     const double b = a * L;
-    int i, j, k, N, M, Z, ngl, igl, ng, exist, mill[3];
-    double gg, dx, Omega, theta, small = 1.0e-10, cutoff;
+    int i, j, k, N, M, Z, ngl, igl, ng, exist, mill[3], ncr;
+    double gg, dx, Omega, theta, small = 1.0e-10, cutoff, tmpd1, tmpd2, tmpd3, tmpd4;
     double x,y,z,dist,r,sigma = 0.25, \
       sum, sum2, sumff, sumff_cut;
     double center[3], g[3];
     double complex *strf;
-    double *gl, *formf, *integralbox;
+    double *gl, *formf, *integralbox, *box, *box2, *rhoc, *rr, *rhoc2, *rrab, *xx, \
+      *rr_intp, *rhoc_intp, *rhoc2_intp;
     int *gtogl;
     fftw_complex *in, *out, *outff, *outff_cut, *in2, \
       *inff, *inff_cut;
+    FILE *rhoinp;
+    char filebuffer[100];
     
-    // default value
-    dx = 0.0001; // in bohr, step size for integration
-    Z  = 20000;  // number of points for integration
-    center[0] = 0.5 * a; center[1] = 0.5 * a; center[2] = 0.5 * b; // in bohr
-
     // test bessel function J0(x)
     /*
     for (i = 0; i < Z; i++) {
@@ -83,19 +72,27 @@ int main(int argc, char **argv)
     exit(0);
     */
 
-    if (argc == 2) {
+    // default value
+    dx = 0.00005; // in bohr, step size for integration
+    Z  = 72000;  // number of points for integration
+    center[0] = 0.5 * a; center[1] = 0.5 * a; center[2] = 0.5 * b; // in bohr
+     
+    // read command line argument and allocate space for FFT
+    if (argc == 3) {
        sscanf(*(argv+1), " %d", &N);
+       sscanf(*(argv+2), " %d", &M);
        if ( N < 5 || N > 300 ) {
          printf (" N should between [5,300]\n");
          return 0;
        }
     }
     else {
-       printf ("Usage: ./fftw_3d_practice_formfact N \n");
+       printf ("Usage: ./fftw_3d_practice_formfact N M \n");
        printf (" N is the size of the grid in x and y direction. \n");
+       printf (" M is the size of the grid in z direction. \n");
        return 0;
     }
-    M = (int)((L+0.006) * N);
+     
     printf ("# N = %d M = %d Z = %d dx = %11.4f \n", N, M, Z, dx);
     in    = (fftw_complex *)fftw_malloc(N * N * M * sizeof(fftw_complex));
     out   = (fftw_complex *)fftw_malloc(N * N * M * sizeof(fftw_complex));
@@ -106,6 +103,56 @@ int main(int argc, char **argv)
     inff_cut \
           = (fftw_complex *)fftw_malloc(N * N * M * sizeof(fftw_complex));
     in2   = (fftw_complex *)fftw_malloc(N * N * M * sizeof(fftw_complex));
+
+    // read rhocore_r.dat
+    ncr = 0;
+    rhoinp = fopen("rhocore_r.dat", "r");
+    // find out how many lines in rhocor_r.dat.
+    while (( fgets(filebuffer, sizeof(filebuffer), rhoinp)) != NULL ) {
+       ncr = ncr + 1;
+    }
+    // reposition rhoinp to the beginning of the file
+    rewind(rhoinp);
+    rhoc  = (double *) malloc ((ncr+1) * sizeof(double));
+    rr    = (double *) malloc ((ncr+1) * sizeof(double));
+    rrab  = (double *) malloc ((ncr+1) * sizeof(double));
+    // I added rhocore(r=0) to rr_intp, rhoc_intp, rhoc2_intp
+    rr_intp = (double *) malloc ((ncr+2) * sizeof(double));
+    rhoc_intp = (double *) malloc ((ncr+2) * sizeof(double));
+    rhoc2_intp = (double *) malloc ((ncr+2) * sizeof(double));
+    for ( i = 1; i < ncr + 1; i++) {
+      fscanf ( rhoinp, "%d %lf %lf %lf", &j, &tmpd1, &tmpd2, &tmpd3 );
+      rr[i] = tmpd1; 
+      rr_intp[i+1] = tmpd1; 
+      rrab[i] = tmpd2; 
+      rhoc[i] = tmpd3;
+      rhoc_intp[i+1] = tmpd3;
+      // printf ( " %6d  %24.12e %24.12e %24.12e \n ", j, rr[i], rrab[i], rhoc[i] );
+    }
+    // rhocore_r.dat doesn't have points at r=0, set rhoc[r=0] = rhoc[r(1)]
+    rr_intp[1] = -small; rhoc_intp[1] = rhoc_intp[2]; 
+    tmpd1 = 0.0; tmpd2 = 0.0;
+    // setup the second derivative "rhoc2_intp" for splin interpolation
+    spline(rr_intp, rhoc_intp, ncr+1, tmpd1, tmpd2, rhoc2_intp);
+    // xx[1...Z], ignore xx[0]
+    xx  = (double *) malloc ( (Z+1) * sizeof(double) );
+    for ( i = 0; i < Z; i++) xx[i+1] = (double)i * dx;
+    integralbox = (double *) malloc ( (Z+1) * sizeof(double) );
+    // integralbox[1..Z] = rhoc[xx[1:Z]]
+    splint_array(rr_intp, rhoc_intp, rhoc2_intp, ncr+1, Z, xx, integralbox);
+    /* // test splin_array()
+    for ( i = 0; i < Z; i++) {
+       x = (double)i * dx;
+       if ( x < rr_intp[1] ) {
+          tmpd1 = rhoc[1];
+       }
+       else {
+          splint(rr_intp, rhoc_intp, rhoc2_intp, ncr+1, x, &tmpd1);
+       }
+       printf ("%20.10e  %20.10e  %20.10e \n", x, tmpd1, integralbox[i+1]);
+    }
+    */
+    // calculate rhoc (r) using realspace method 
     for(i = 0; i < N; i++)
     for(j = 0; j < N; j++)
     for(k = 0; k < M; k++) {
@@ -115,22 +162,31 @@ int main(int argc, char **argv)
        dist = sqrt( (x-center[0]) * (x-center[0]) + \
                     (y-center[1]) * (y-center[1]) + \
                     (z-center[2]) * (z-center[2]) ); // distance from the grid point to center[3]
-       in[k+M*(j+N*i)] = gaussian( 0.0, sigma, dist );
+       if ( dist < rr_intp[1] ) {
+           tmpd1 = rhoc[1];
+       } else {
+           splint(rr_intp, rhoc_intp, rhoc2_intp, ncr+1, dist, &tmpd1);
+       }
+       in[k+M*(j+N*i)] = tmpd1;
     }
-     
     p = fftw_plan_dft_3d(N, N, M, \
-            in, out, FFTW_FORWARD, FFTW_ESTIMATE);
-     
+           in, out, FFTW_FORWARD, FFTW_ESTIMATE);
     fftw_execute(p);
-    // shells of g-vectors
+
+    // Next, use fourier transform to calculate rhoc(G)
+    // First find out how many shells of G-vectors 
+    // gl stores the g-shells
     gl = (double *) malloc(N * N * M * sizeof(double));
     for (i = 0; i < N*N*M; i++) { gl[i] = 0.0; }
+    // gtogl maps a g-vector to its index of gl
     gtogl = (int *) malloc(N * N * M * sizeof(int));
     for (i = 0; i < N*N*M; i++) { gtogl[i] = 0; }
+    // structure factor
     strf = (double complex *) malloc(N * N * M * sizeof(double complex));
+    // form factor
     formf = (double *) malloc(N * N * M * sizeof(double));
     ngl = 0;
-    for(i = 0; i < N; i++) {
+    for (i = 0; i < N; i++) {
       mill[0] = (i<=N/2)?(i):(i-N);
       g[0] = mill[0] * twopi/a;
       for(j = 0; j < N; j++) {
@@ -139,7 +195,7 @@ int main(int argc, char **argv)
         for(k = 0; k < M; k++) {
            mill[2] = (k<=M/2)?(k):(k-M);
            g[2] = mill[2] * twopi/b;
-           gg = sqrt ( g[0]*g[0] + g[1]*g[1] + g[2]*g[2] );
+           gg = sqrt ( g[0]*g[0] + g[1]*g[1] + g[2]*g[2] ); // In Rydberg
            ng = k+M*(j+N*i);
            exist = 0;
            for(igl = 0; igl < ngl; igl++) {
@@ -164,37 +220,61 @@ int main(int argc, char **argv)
       } // j loop
     } // i loop
     printf ( " # shells of gvecs: ngl = %9d \n", ngl );
-    /*
+    /* // print out hte shells of g-vectors
     for (igl = 0;igl < ngl; igl++) {
         printf ( " %6d  %12.4e \n", igl, gl[igl] );
     }
     */
     Omega = a*a*b; // Volume of unit cell
-    integralbox = (double * ) malloc(Z * sizeof(double));
+    box = (double *) malloc ( (ncr+1)*sizeof(double));
+    box2 = (double *) malloc ( (Z+1)*sizeof(double));
     for(igl = 0; igl < ngl; igl++) {
+        // integrate with finer grid
        if (gl[igl] <= small ) {
-          for (j = 0; j < Z; j++) {
-              x = j * dx;
-              integralbox[j] = gaussian(0.0, sigma, x) * x * x;
-              // if ( j < 10000 && igl < 2) { printf ("%9.5e %9.5e \n", x, integralbox[j]); }
+          for (j = 1; j <= Z; j++) {
+              x = xx[j];
+              box2[j] = integralbox[j] * x * x;
           }
        }
        else {
-          for (j = 0; j < Z; j++) {
-              x = j * dx;
-              integralbox[j] = gaussian(0.0, sigma, x) * x * x * J0(gl[igl]*x);
-              // if ( j < 10000 && igl < 2 ) { printf ("%9.5e %9.5e \n", x, integralbox[j]); }
+          for (j = 1; j <= Z; j++) {
+              x = xx[j];
+              box2[j] = integralbox[j] * x * x * J0(gl[igl]*x);
           }
        }
+       //sum = simpson2(Z, box2, dx);
        sum = 0.0;
-       // Integration with the Simpson's rule
-       for (j = 1; j < Z/2; j++) {
-           sum = sum + dx/3.0 * (integralbox[2*j-2] + integralbox[2*j-1]*4.0 + integralbox[2*j]);
+       for ( j = 1; j < Z/2; j++) {
+           sum = sum + dx/3.0 * (box2[2*j-2+1] + box2[2*j-1+1]*4.0 + box2[2*j+1]);
        }
-       formf[igl] = sum * fourpi / Omega;
-       // printf (" %9d %9.5f \n", igl, formf[igl]);
+
+       // printf ("%20.12e  %20.12e \n", gl[igl], sum);
+       /*
+       // integrate as QE
+       if (gl[igl] <= small ) {
+          for (j = 1; j <= ncr; j++) {
+              x = rr[j];
+              box[j] = rhoc[j] * x * x;
+              // printf ("%7d %15.8f %20.12e %20.12e\n",j, x, box[j], rhoc[j]);
+          }
+       }
+       else {
+          for (j = 1; j <= ncr; j++) {
+              x = rr[j];
+              box[j] = rhoc[j] * x * x * J0(gl[igl]*x);
+              // printf ("%7d %15.8f %20.12e %20.12e\n",j, x, box[j], rhoc[j]);
+          }
+       }
+       sum = simpson(ncr, box, rrab);
+       printf (" %20.12e\n" sum);
+       */
+       formf[igl] = sum * fourpi / Omega; // divided by Omega
+       // print out four factor
+       // If there is only one atom in the unit cell, then |formf(|G|)| = V(G)
+       printf (" %8d %15.8e %15.8e \n", igl, gl[igl]*gl[igl], formf[igl] );
     }
     // printf ("    formf    strf \n");
+    exit(0);
     cutoff = (N/2 + 0.01)*twopi/a;
     for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
@@ -216,6 +296,7 @@ int main(int argc, char **argv)
           outff_cut [ ng ] = outff [ ng ];
        }
        // printf( " %9.5e %9.5e \n", formf[gtogl[ng]], strf[ng]);
+       // printf( " %10d %10d %10d %17.8e %17.8e \n", mill[0], mill[1], mill[2], outff[ng]/N/N/M, formf[gtogl[ng]] );
     }
     // compare out and outff
     /*
@@ -261,7 +342,7 @@ int main(int argc, char **argv)
     }
     printf ( " ==== \n" );
     
-    for(k = 0; k<M; k++) {
+    for(k = 0; k < M; k++) {
        sum   = 0.0;
        sum2  = 0.0;
        sumff = 0.0;
@@ -282,6 +363,7 @@ int main(int argc, char **argv)
        printf ( " %13.5e  %13.5e  %13.5e  %13.5e  %13.5e \n", \
           z, sum, sum2, sumff, sumff_cut );
     }
+
     fftw_destroy_plan(p);
     fftw_free(in);
     fftw_free(out);
@@ -293,5 +375,15 @@ int main(int argc, char **argv)
     free(strf);
     free(formf);
     free(integralbox);
+    free(rhoc);
+    free(rr);
+    free(rrab);
+    free(rr_intp);
+    free(rhoc_intp);
+    free(rhoc2_intp);
+    free(xx);
+    free(box);
+    free(box2);
+        
     return 0;
 }
